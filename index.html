@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Luzern Sky" />
+  <title>Luzern 6003 – Live Radar</title>
+  <style>
+    :root {
+      --bg: #090d16;
+      --card-bg: #131b2e;
+      --border: #24314c;
+      --text: #94a3b8;
+      --text-bright: #f8fafc;
+      --accent: #38bdf8;
+      --accent-green: #4ade80;
+      --badge-bg: #0f172a;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      padding: env(safe-area-inset-top, 16px) 16px env(safe-area-inset-bottom, 16px) 16px;
+      min-height: 100vh;
+    }
+
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+      padding-top: 12px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    h1 {
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: var(--text-bright);
+      letter-spacing: -0.02em;
+    }
+
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.75rem;
+      background: var(--badge-bg);
+      padding: 5px 10px;
+      border-radius: 20px;
+      border: 1px solid var(--border);
+      color: var(--text-bright);
+    }
+
+    .pulse-dot {
+      width: 7px;
+      height: 7px;
+      background: var(--accent-green);
+      border-radius: 50%;
+      box-shadow: 0 0 6px var(--accent-green);
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: 16px;
+    }
+
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    }
+
+    .photo-container {
+      width: 100%;
+      height: 180px;
+      background: #020617;
+      position: relative;
+    }
+
+    .photo-container img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .photo-placeholder {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #64748b;
+      font-size: 0.8rem;
+    }
+
+    .photo-credit {
+      position: absolute;
+      bottom: 6px;
+      right: 8px;
+      font-size: 0.6rem;
+      background: rgba(0, 0, 0, 0.75);
+      padding: 2px 6px;
+      border-radius: 4px;
+      color: #cbd5e1;
+    }
+
+    .card-body {
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .airline-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .airline-info {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .airline-logo {
+      height: 22px;
+      max-width: 60px;
+      object-fit: contain;
+      background: #ffffff;
+      padding: 2px 4px;
+      border-radius: 4px;
+    }
+
+    .airline-name {
+      font-weight: 600;
+      font-size: 0.9rem;
+      color: var(--text-bright);
+    }
+
+    .callsign-badge {
+      font-family: ui-monospace, Menlo, monospace;
+      font-weight: 700;
+      background: var(--badge-bg);
+      padding: 3px 8px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      color: var(--accent);
+      font-size: 0.85rem;
+    }
+
+    .route-box {
+      background: var(--badge-bg);
+      border-radius: 10px;
+      padding: 10px 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      text-align: center;
+      border: 1px solid rgba(255, 255, 255, 0.04);
+    }
+
+    .airport-code {
+      font-size: 1.15rem;
+      font-weight: 800;
+      color: var(--text-bright);
+    }
+
+    .airport-city {
+      font-size: 0.7rem;
+      color: #94a3b8;
+      max-width: 100px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .flight-arrow {
+      color: var(--accent);
+      font-size: 0.95rem;
+    }
+
+    .flight-meta {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.75rem;
+      color: #94a3b8;
+      border-top: 1px solid var(--border);
+      padding-top: 10px;
+    }
+
+    .empty-state {
+      grid-column: 1 / -1;
+      text-align: center;
+      padding: 60px 20px;
+      color: #64748b;
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div>
+      <h1>✈️ 6003 Luzern</h1>
+      <p style="font-size: 0.75rem; color: #64748b;">Live ADS-B Radar</p>
+    </div>
+    <div class="status-badge">
+      <span class="pulse-dot" id="live-dot"></span>
+      <span id="status-text">Suche...</span>
+    </div>
+  </header>
+
+  <main class="grid" id="aircraft-grid">
+    <div class="empty-state">Flugzeuge im Anflug werden geladen...</div>
+  </main>
+
+  <script>
+    const LUZERN_LAT = 47.0502;
+    const LUZERN_LON = 8.3093;
+    const RADIUS_NM = 30;
+    const REFRESH_SECONDS = 15;
+
+    const cache = new Map();
+
+    async function fetchJSON(url) {
+      try {
+        const res = await fetch(url);
+        if (res.ok) return await res.json();
+      } catch (e) {
+        try {
+          const proxyRes = await fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`);
+          if (proxyRes.ok) return await proxyRes.json();
+        } catch (err) {}
+      }
+      return null;
+    }
+
+    async function fetchOverflights() {
+      const statusEl = document.getElementById("status-text");
+      const dotEl = document.getElementById("live-dot");
+
+      const data = await fetchJSON(`https://api.airplanes.live/v2/point/${LUZERN_LAT}/${LUZERN_LON}/${RADIUS_NM}`);
+
+      if (!data || !data.ac) {
+        statusEl.textContent = "Offline";
+        dotEl.style.background = "#ef4444";
+        return;
+      }
+
+      const aircraft = data.ac.filter(a => a.flight && a.alt_baro !== "ground");
+      
+      statusEl.textContent = `${aircraft.length} Flüge`;
+      dotEl.style.background = "var(--accent-green)";
+
+      renderAircraftGrid(aircraft);
+    }
+
+    async function getAircraftDetails(hex, flight) {
+      const callsign = (flight || "").trim();
+      const key = `${hex}_${callsign}`;
+      if (cache.has(key)) return cache.get(key);
+
+      const info = {
+        photoUrl: null,
+        photographer: null,
+        origin: "---",
+        originCity: "",
+        dest: "---",
+        destCity: "",
+        airline: "Privat / Charter",
+        iata: null
+      };
+
+      const pData = await fetchJSON(`https://api.planespotters.net/pub/photos/hex/${hex}`);
+      if (pData?.photos?.[0]) {
+        info.photoUrl = pData.photos[0].thumbnail_large?.src || pData.photos[0].thumbnail?.src;
+        info.photographer = pData.photos[0].photographer;
+      }
+
+      if (callsign && callsign !== "N/A") {
+        const rData = await fetchJSON(`https://api.adsbdb.com/v0/callsign/${callsign}`);
+        const route = rData?.response?.flightroute;
+        if (route) {
+          info.origin = route.origin?.iata_code || route.origin?.icao_code || "---";
+          info.originCity = route.origin?.municipality || "";
+          info.dest = route.destination?.iata_code || route.destination?.icao_code || "---";
+          info.destCity = route.destination?.municipality || "";
+          if (route.airline) {
+            info.airline = route.airline.name || info.airline;
+            info.iata = route.airline.iata;
+          }
+        }
+      }
+
+      cache.set(key, info);
+      return info;
+    }
+
+    function renderAircraftGrid(list) {
+      const grid = document.getElementById("aircraft-grid");
+      if (list.length === 0) {
+        grid.innerHTML = `<div class="empty-state">Aktuell keine aktiven Flüge im Umkreis von 30 NM.</div>`;
+        return;
+      }
+
+      grid.innerHTML = list.map(ac => {
+        const cs = (ac.flight || "N/A").trim();
+        const alt = ac.alt_baro ? `${Math.round(ac.alt_baro * 0.3048)} m` : "N/A";
+        const spd = ac.gs ? `${Math.round(ac.gs * 1.852)} km/h` : "N/A";
+        const typ = ac.t || "Flugzeug";
+
+        return `
+          <div class="card">
+            <div class="photo-container" id="p-box-${ac.hex}">
+              <div class="photo-placeholder">Lade Foto...</div>
+            </div>
+            <div class="card-body">
+              <div class="airline-row">
+                <div class="airline-info">
+                  <div id="logo-box-${ac.hex}"></div>
+                  <span class="airline-name" id="air-name-${ac.hex}">...</span>
+                </div>
+                <span class="callsign-badge">${cs}</span>
+              </div>
+
+              <div class="route-box">
+                <div>
+                  <div class="airport-code" id="orig-${ac.hex}">---</div>
+                  <div class="airport-city" id="orig-c-${ac.hex}"></div>
+                </div>
+                <div class="flight-arrow">➔</div>
+                <div>
+                  <div class="airport-code" id="dest-${ac.hex}">---</div>
+                  <div class="airport-city" id="dest-c-${ac.hex}"></div>
+                </div>
+              </div>
+
+              <div class="flight-meta">
+                <span>Typ: <strong>${typ}</strong></span>
+                <span>Höhe: <strong>${alt}</strong></span>
+                <span>Speed: <strong>${spd}</strong></span>
+              </div>
+            </div>
+          </div>
+        `;
+      }).join("");
+
+      list.forEach(async ac => {
+        const details = await getAircraftDetails(ac.hex, ac.flight);
+
+        const pBox = document.getElementById(`p-box-${ac.hex}`);
+        if (pBox) {
+          if (details.photoUrl) {
+            pBox.innerHTML = `<img src="${details.photoUrl}" alt="Flugzeug" /><span class="photo-credit">© ${details.photographer || 'Planespotters'}</span>`;
+          } else {
+            pBox.innerHTML = `<div class="photo-placeholder">Kein Foto verfügbar</div>`;
+          }
+        }
+
+        const airName = document.getElementById(`air-name-${ac.hex}`);
+        if (airName) airName.textContent = details.airline;
+
+        const logoBox = document.getElementById(`logo-box-${ac.hex}`);
+        if (logoBox && details.iata) {
+          logoBox.innerHTML = `<img class="airline-logo" src="https://images.kiwi.com/airlines/64x64/${details.iata}.png" onerror="this.remove()" alt="Logo" />`;
+        }
+
+        const orig = document.getElementById(`orig-${ac.hex}`);
+        const origC = document.getElementById(`orig-c-${ac.hex}`);
+        const dest = document.getElementById(`dest-${ac.hex}`);
+        const destC = document.getElementById(`dest-c-${ac.hex}`);
+
+        if (orig) orig.textContent = details.origin;
+        if (origC) origC.textContent = details.originCity;
+        if (dest) dest.textContent = details.dest;
+        if (destC) destC.textContent = details.destCity;
+      });
+    }
+
+    fetchOverflights();
+    setInterval(fetchOverflights, REFRESH_SECONDS * 1000);
+  </script>
+</body>
+</html>
