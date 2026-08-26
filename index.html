@@ -219,61 +219,90 @@
   <header>
     <div>
       <h1>✈️ 6003 Luzern</h1>
-      <p style="font-size: 0.75rem; color: #64748b;">Live ADS-B Radar (Zentralschweiz)</p>
+      <p style="font-size: 0.75rem; color: #64748b;">Live ADS-B Radar (Pilatus / Vierwaldstättersee)</p>
     </div>
     <div class="status-badge">
       <span class="pulse-dot" id="live-dot"></span>
-      <span id="status-text">Suche Flugzeuge...</span>
+      <span id="status-text">Verbinde Radar...</span>
     </div>
   </header>
 
   <main class="grid" id="aircraft-grid">
-    <div class="empty-state">Flugdaten werden geladen...</div>
+    <div class="empty-state">Flugzeuge im Anflug werden gesucht...</div>
   </main>
 
   <script>
-    // Koordinatenbox um Luzern (ca. 45-50 km Radius)
-    const LAMIN = 46.75;
-    const LAMAX = 47.35;
-    const LOMIN = 7.90;
-    const LOMAX = 8.75;
-    const REFRESH_SECONDS = 12;
+    const LUZERN_LAT = 47.0502;
+    const LUZERN_LON = 8.3093;
+    const RADIUS_NM = 35; // ca. 65 km Umkreis
+    const REFRESH_SECONDS = 15;
 
     const cache = new Map();
+
+    async function fetchFromMultipleSources() {
+      // 1. Quelle: Airplanes.live über zuverlässigen JSON-Worker
+      try {
+        const url = `https://api.airplanes.live/v2/point/${LUZERN_LAT}/${LUZERN_LON}/${RADIUS_NM}`;
+        const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
+        const res = await fetch(proxyUrl);
+        if (res.ok) {
+          const wrapper = await res.json();
+          const data = JSON.parse(wrapper.contents);
+          if (data && data.ac) {
+            return data.ac
+              .filter(a => a.flight && a.alt_baro !== "ground")
+              .map(a => ({
+                hex: (a.hex || "").toLowerCase(),
+                callsign: a.flight.trim(),
+                country: a.flag || "CH/INT",
+                alt_text: a.alt_baro ? `${Math.round(a.alt_baro * 0.3048)} m` : "N/A",
+                spd_text: a.gs ? `${Math.round(a.gs * 1.852)} km/h` : "N/A",
+                type: a.t || "Flugzeug"
+              }));
+          }
+        }
+      } catch (e) {}
+
+      // 2. Quelle: OpenSky Network
+      try {
+        const openUrl = `https://opensky-network.org/api/states/all?lamin=46.65&lomin=7.75&lamax=47.45&lomax=8.85`;
+        const res = await fetch(openUrl);
+        if (res.ok) {
+          const data = await res.json();
+          if (data && data.states) {
+            return data.states
+              .filter(st => !st[8] && st[1] && st[1].trim().length > 0)
+              .map(st => ({
+                hex: (st[0] || "").toLowerCase(),
+                callsign: st[1].trim(),
+                country: st[2] || "Unbekannt",
+                alt_text: (st[7] || st[13]) ? `${Math.round(st[7] || st[13])} m` : "N/A",
+                spd_text: st[9] ? `${Math.round(st[9] * 3.6)} km/h` : "N/A",
+                type: "Flugzeug"
+              }));
+          }
+        }
+      } catch (e) {}
+
+      return null;
+    }
 
     async function fetchOverflights() {
       const statusEl = document.getElementById("status-text");
       const dotEl = document.getElementById("live-dot");
 
-      try {
-        // OpenSky API erlaubt direkte Browser-Abfragen ohne CORS-Sperre
-        const url = `https://opensky-network.org/api/states/all?lamin=${LAMIN}&lomin=${LOMIN}&lamax=${LAMAX}&lomax=${LOMAX}`;
-        const res = await fetch(url);
-        
-        if (!res.ok) throw new Error("API-Fehler");
-        const data = await res.json();
-        
-        const rawStates = data.states || [];
-        // Nur fliegende Flugzeuge mit gültigem Rufzeichen
-        const aircraftList = rawStates
-          .filter(st => !st[8] && st[1] && st[1].trim().length > 0)
-          .map(st => ({
-            hex: st[0].toLowerCase(),
-            callsign: st[1].trim(),
-            origin_country: st[2],
-            alt_m: st[7] || st[13] || 0,
-            speed_kmh: st[9] ? Math.round(st[9] * 3.6) : 0
-          }));
+      const aircraftList = await fetchFromMultipleSources();
 
-        statusEl.textContent = `${aircraftList.length} Flüge (${new Date().toLocaleTimeString('de-CH', {hour: '2-digit', minute:'2-digit', second:'2-digit'})})`;
-        dotEl.style.background = "var(--accent-green)";
-
-        renderAircraftGrid(aircraftList);
-      } catch (err) {
-        console.warn("Ladefehler:", err);
-        statusEl.textContent = "Warte auf Signal...";
+      if (!aircraftList) {
+        statusEl.textContent = "Verbindung wird neu aufgebaut...";
         dotEl.style.background = "#eab308";
+        return;
       }
+
+      statusEl.textContent = `${aircraftList.length} Flüge (${new Date().toLocaleTimeString('de-CH', {hour: '2-digit', minute:'2-digit', second:'2-digit'})})`;
+      dotEl.style.background = "var(--accent-green)";
+
+      renderAircraftGrid(aircraftList);
     }
 
     async function getFlightDetails(hex, callsign) {
@@ -291,7 +320,7 @@
         iata: null
       };
 
-      // 1. Flugzeug-Foto (Planespotters)
+      // 1. Foto laden
       try {
         const pRes = await fetch(`https://api.planespotters.net/pub/photos/hex/${hex}`);
         if (pRes.ok) {
@@ -303,24 +332,26 @@
         }
       } catch (e) {}
 
-      // 2. Flugroute & Airline (adsbdb)
-      try {
-        const rRes = await fetch(`https://api.adsbdb.com/v0/callsign/${callsign}`);
-        if (rRes.ok) {
-          const rData = await rRes.json();
-          const route = rData?.response?.flightroute;
-          if (route) {
-            info.origin = route.origin?.iata_code || route.origin?.icao_code || "---";
-            info.originCity = route.origin?.municipality || route.origin?.name || "";
-            info.dest = route.destination?.iata_code || route.destination?.icao_code || "---";
-            info.destCity = route.destination?.municipality || route.destination?.name || "";
-            if (route.airline) {
-              info.airline = route.airline.name || info.airline;
-              info.iata = route.airline.iata;
+      // 2. Route & Airline laden
+      if (callsign && callsign !== "N/A") {
+        try {
+          const rRes = await fetch(`https://api.adsbdb.com/v0/callsign/${callsign}`);
+          if (rRes.ok) {
+            const rData = await rRes.json();
+            const route = rData?.response?.flightroute;
+            if (route) {
+              info.origin = route.origin?.iata_code || route.origin?.icao_code || "---";
+              info.originCity = route.origin?.municipality || route.origin?.name || "";
+              info.dest = route.destination?.iata_code || route.destination?.icao_code || "---";
+              info.destCity = route.destination?.municipality || route.destination?.name || "";
+              if (route.airline) {
+                info.airline = route.airline.name || info.airline;
+                info.iata = route.airline.iata;
+              }
             }
           }
-        }
-      } catch (e) {}
+        } catch (e) {}
+      }
 
       cache.set(key, info);
       return info;
@@ -329,49 +360,44 @@
     function renderAircraftGrid(list) {
       const grid = document.getElementById("aircraft-grid");
       if (list.length === 0) {
-        grid.innerHTML = `<div class="empty-state">Aktuell kein aktiver Flugverkehr direkt über Luzern.</div>`;
+        grid.innerHTML = `<div class="empty-state">Aktuell keine Flüge direkt im Luftraum Luzern erfasst.</div>`;
         return;
       }
 
-      grid.innerHTML = list.map(ac => {
-        const altText = ac.alt_m ? `${Math.round(ac.alt_m)} m` : "N/A";
-        const spdText = ac.speed_kmh ? `${ac.speed_kmh} km/h` : "N/A";
-
-        return `
-          <div class="card">
-            <div class="photo-container" id="p-box-${ac.hex}">
-              <div class="photo-placeholder">Lade Foto...</div>
+      grid.innerHTML = list.map(ac => `
+        <div class="card">
+          <div class="photo-container" id="p-box-${ac.hex}">
+            <div class="photo-placeholder">Lade Foto...</div>
+          </div>
+          <div class="card-body">
+            <div class="airline-row">
+              <div class="airline-info">
+                <div id="logo-box-${ac.hex}"></div>
+                <span class="airline-name" id="air-name-${ac.hex}">Lade Airline...</span>
+              </div>
+              <span class="callsign-badge">${ac.callsign}</span>
             </div>
-            <div class="card-body">
-              <div class="airline-row">
-                <div class="airline-info">
-                  <div id="logo-box-${ac.hex}"></div>
-                  <span class="airline-name" id="air-name-${ac.hex}">Wird geladen...</span>
-                </div>
-                <span class="callsign-badge">${ac.callsign}</span>
-              </div>
 
-              <div class="route-box">
-                <div>
-                  <div class="airport-code" id="orig-${ac.hex}">---</div>
-                  <div class="airport-city" id="orig-c-${ac.hex}"></div>
-                </div>
-                <div class="flight-arrow">✈ ➔</div>
-                <div>
-                  <div class="airport-code" id="dest-${ac.hex}">---</div>
-                  <div class="airport-city" id="dest-c-${ac.hex}"></div>
-                </div>
+            <div class="route-box">
+              <div>
+                <div class="airport-code" id="orig-${ac.hex}">---</div>
+                <div class="airport-city" id="orig-c-${ac.hex}"></div>
               </div>
+              <div class="flight-arrow">➔</div>
+              <div>
+                <div class="airport-code" id="dest-${ac.hex}">---</div>
+                <div class="airport-city" id="dest-c-${ac.hex}"></div>
+              </div>
+            </div>
 
-              <div class="flight-meta">
-                <span>Land: <strong>${ac.origin_country}</strong></span>
-                <span>Höhe: <strong>${altText}</strong></span>
-                <span>Speed: <strong>${spdText}</strong></span>
-              </div>
+            <div class="flight-meta">
+              <span>Typ: <strong>${ac.type}</strong></span>
+              <span>Höhe: <strong>${ac.alt_text}</strong></span>
+              <span>Speed: <strong>${ac.spd_text}</strong></span>
             </div>
           </div>
-        `;
-      }).join("");
+        </div>
+      `).join("");
 
       list.forEach(async ac => {
         const details = await getFlightDetails(ac.hex, ac.callsign);
